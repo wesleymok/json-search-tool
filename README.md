@@ -1,4 +1,4 @@
-# Award Search Plugin
+# WordPress JSON Search Plugin
 
 ## Description
 A WordPress plugin that enables users to search through award data stored in JSON format. The plugin provides an intuitive interface with multiple filtering options, helping users quickly find relevant awards based on specific criteria.
