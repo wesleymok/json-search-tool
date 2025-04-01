@@ -116,6 +116,51 @@ input[type="text"] {
     color: #555;
 }
 
+.award-search-pagination {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.pagination-info {
+    margin-bottom: 10px;
+    color: #666;
+}
+
+.pagination-controls {
+    display: flex;
+    justify-content: center;
+}
+
+.pagination-button {
+    padding: 10px 12px;
+    background-color: #FFFFFF;
+    border: 1px solid #B4B2B2;
+    cursor: pointer;
+}
+
+.last-page {
+    border-radius: 0 3px 3px 0;
+}
+
+.first-page {
+    border-radius: 3px 0 0 3px;
+}
+
+.pagination-button.current {
+    background-color: #353C98;
+    color: white;
+    border-color: #007bff;
+}
+
+.pagination-button.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-button:not(.disabled):not(.current):hover {
+    background-color: #DFE1FC;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .search-filters {

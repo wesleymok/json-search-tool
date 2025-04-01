@@ -126,12 +126,35 @@ class Award_JSON_Search_Plugin {
         $faculty_filter = isset($_POST['faculty_filter']) ? sanitize_text_field($_POST['faculty_filter']) : 'all';
         $graduate_filter = isset($_POST['graduate_filter']) ? sanitize_text_field($_POST['graduate_filter']) : 'all';
         $award_type_filter = isset($_POST['award_type_filter']) ? sanitize_text_field($_POST['award_type_filter']) : 'all';
-
-        // Perform search with filters
-        $results = $this->search_json_data($search_term, $campus_filter, $faculty_filter, $graduate_filter, $award_type_filter);
         
-        // Return results
-        wp_send_json_success($results);
+        // Pagination parameters
+        $page = isset($_POST['page']) ? intval($_POST['page']) : 1;
+        $per_page = isset($_POST['per_page']) ? intval($_POST['per_page']) : 10; // Default to 10 items per page
+        
+        // Perform search with filters
+        $all_results = $this->search_json_data($search_term, $campus_filter, $faculty_filter, $graduate_filter, $award_type_filter);
+        
+        // Calculate pagination info
+        $total_results = count($all_results);
+        $total_pages = ceil($total_results / $per_page);
+        
+        // Ensure page is within valid range
+        $page = max(1, min($page, $total_pages));
+        
+        // Get paginated results
+        $offset = ($page - 1) * $per_page;
+        $paginated_results = array_slice($all_results, $offset, $per_page);
+        
+        // Return results with pagination info
+        wp_send_json_success(array(
+            'results' => $paginated_results,
+            'pagination' => array(
+                'current_page' => $page,
+                'per_page' => $per_page,
+                'total_results' => $total_results,
+                'total_pages' => $total_pages
+            )
+        ));
         return;
     }
     
@@ -215,6 +238,9 @@ class Award_JSON_Search_Plugin {
                     case 'Fellowship':
                         $award_type_match = ($award['Award Type'] === 'FELL');
                         break;
+                    case 'Fellowship':
+                        $award_type_match = ($award['Award Type'] === 'BURS');
+                        break;
                     default:
                         $award_type_match = ($award['Award Type'] === $award_type_filter);
                 }
@@ -253,15 +279,14 @@ class Award_JSON_Search_Plugin {
      */
     public function search_shortcode_callback($atts) {
         $atts = shortcode_atts(array(
-            'placeholder' => 'Search awards... (or press the "Find Awards" button to display all)',
-            'button_text' => 'Find Awards',
-            'results_limit' => 20,
+            'placeholder' => 'Search awards... (or press the "Find Awards" button to search all)',
+            'button_text' => 'Search',
+            'per_page' => 10,
         ), $atts);
-
+    
         // Get unique faculties from data for the dropdown
-         $faculties = $this->get_unique_faculties();
-
-
+        $faculties = $this->get_unique_faculties();
+    
         ob_start();
         ?>
     <div class="award-search-container">
@@ -301,6 +326,7 @@ class Award_JSON_Search_Plugin {
                 <select id="award-type-filter">
                     <option value="all">Select one</option>
                     <option value="AWRD">Award</option>
+                    <option value="BURS">Bursaries</option>
                     <option value="FELL">Fellowship</option>
                     <option value="SCHL">Scholarship</option>
                     <option value="PRIZ">Prize</option>
@@ -316,6 +342,11 @@ class Award_JSON_Search_Plugin {
         <div id="award-search-results" class="award-search-results">
             <!-- Results will be loaded here via JavaScript -->
         </div>
+        <div id="award-search-pagination" class="award-search-pagination">
+            <!-- Pagination will be added dynamically -->
+        </div>
+        <input type="hidden" id="current-page" value="1">
+        <input type="hidden" id="per-page" value="<?php echo esc_attr($atts['per_page']); ?>">
     </div>
     <?php
     return ob_get_clean();

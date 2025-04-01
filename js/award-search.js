@@ -1,17 +1,27 @@
 jQuery(document).ready(function($) {
+    // Current search parameters - to be used for pagination
+    let currentSearchParams = {
+        search_term: '',
+        campus_filter: 'all',
+        faculty_filter: 'all',
+        graduate_filter: 'all',
+        award_type_filter: 'all',
+        page: 1,
+        per_page: $('#per-page').val() || 10
+    };
+    
     // Function to perform search
-    function performSearch() {
-        const searchTerm = $('#award-search-input').val();
-        const campusFilter = $('#campus-filter').val();
-        const facultyFilter = $('#faculty-filter').val();
-        const graduateFilter = $('#graduate-filter').val();
-        const awardTypeFilter = $('#award-type-filter').val();
+    function performSearch(page = 1) {
+        // Update search parameters
+        currentSearchParams.search_term = $('#award-search-input').val();
+        currentSearchParams.campus_filter = $('#campus-filter').val();
+        currentSearchParams.faculty_filter = $('#faculty-filter').val();
+        currentSearchParams.graduate_filter = $('#graduate-filter').val();
+        currentSearchParams.award_type_filter = $('#award-type-filter').val();
+        currentSearchParams.page = page;
         
-        // Only require search term if no filters are applied
-        // if (searchTerm.length < 2 && campusFilter === 'all' && facultyFilter === 'all') {
-        //     $('#award-search-results').html('<p>Please enter at least 2 characters or select a filter</p>');
-        //     return;
-        // }
+        // Update current page field
+        $('#current-page').val(page);
         
         // Show loading indicator
         $('#award-search-results').html('<p>Searching...</p>');
@@ -23,21 +33,27 @@ jQuery(document).ready(function($) {
             data: {
                 action: 'award_search_query',
                 nonce: award_search_ajax.nonce,
-                search_term: searchTerm,
-                campus_filter: campusFilter,
-                faculty_filter: facultyFilter,
-                graduate_filter: graduateFilter,
-                award_type_filter: awardTypeFilter
+                search_term: currentSearchParams.search_term,
+                campus_filter: currentSearchParams.campus_filter,
+                faculty_filter: currentSearchParams.faculty_filter,
+                graduate_filter: currentSearchParams.graduate_filter,
+                award_type_filter: currentSearchParams.award_type_filter,
+                page: currentSearchParams.page,
+                per_page: currentSearchParams.per_page
             },
             success: function(response) {
                 if (response.success && response.data) {
-                    displayResults(response.data);
+                    // Pass both results and pagination data to displayResults
+                    displayResults(response.data.results, response.data.pagination);
+                    displayPagination(response.data.pagination);
                 } else {
                     $('#award-search-results').html('<p>No results found</p>');
+                    $('#award-search-pagination').html('');
                 }
             },
             error: function() {
                 $('#award-search-results').html('<p>Error occurred during search</p>');
+                $('#award-search-pagination').html('');
             }
         });
     }
@@ -45,17 +61,17 @@ jQuery(document).ready(function($) {
     // Handle search form submission
     $('#award-search-form').on('submit', function(e) {
         e.preventDefault();
-        performSearch();
+        performSearch(1); // Reset to first page on new search
     });
     
     // Display search results
-    function displayResults(results) {
+    function displayResults(results, pagination) {
         if (results.length === 0) {
             $('#award-search-results').html('<p>No results found</p>');
             return;
         }
-        
-        let html = '<div class="search-results-count">' + results.length + ' awards found</div>';
+        let totalCount = pagination ? pagination.total_results : results.length;
+        let html = '<div class="search-results-count">' + totalCount + ' awards found</div>';
         html += '<div class="search-results-list">';
         
         results.forEach(function(award) {
@@ -70,6 +86,7 @@ jQuery(document).ready(function($) {
                        (award['Award Type'] === 'AWRD'  ? 'Award' :
                         award['Award Type'] === 'SCHL'  ? 'Scholarship' :
                         award['Award Type'] === 'PRIZ'  ? 'Prize' :
+                        award['Award Type'] === 'BURS'  ? 'Bursaries' :
                         award['Award Type'] === 'FELL' ? 'Fellowship' : award['Award Type']) + 
                        '</p>';
             }
@@ -103,8 +120,6 @@ jQuery(document).ready(function($) {
                 html += '<p>' + award['Award Description'] + '</p>';
                 html += '</div>';
             }
-
-            
             
             html += '</div>'; // Close award-details
             html += '</div>'; // Close award-item
@@ -113,6 +128,81 @@ jQuery(document).ready(function($) {
         html += '</div>'; // Close search-results-list
         $('#award-search-results').html(html);
     }
+
+    // Display pagination controls
+    function displayPagination(pagination) {
+        if (!pagination || pagination.total_pages <= 1) {
+            $('#award-search-pagination').html('');
+            return;
+        }
+        
+        let html = '<div class="pagination-info">';
+        html += 'Showing ' + ((pagination.current_page - 1) * pagination.per_page + 1);
+        html += ' to ' + Math.min(pagination.current_page * pagination.per_page, pagination.total_results);
+        html += ' of ' + pagination.total_results + ' awards';
+        html += '</div>';
+        
+        html += '<div class="pagination-controls">';
+
+        // First page button
+        if (pagination.current_page > 1) {
+            html += '<button class="pagination-button first-page" data-page="1">First</button>';
+        } else {
+            html += '<button class="pagination-button first-page disabled">First</button>';
+        }
+        
+        // Previous page button
+        if (pagination.current_page > 1) {
+            html += '<button class="pagination-button" data-page="' + (pagination.current_page - 1) + '">Previous</button>';
+        } else {
+            html += '<button class="pagination-button disabled">Previous</button>';
+        }
+        
+        // Page numbers
+        const maxPages = 5; // Maximum number of page buttons to show
+        let startPage = Math.max(1, pagination.current_page - Math.floor(maxPages / 2));
+        let endPage = Math.min(pagination.total_pages, startPage + maxPages - 1);
+        
+        if (endPage - startPage + 1 < maxPages && startPage > 1) {
+            startPage = Math.max(1, endPage - maxPages + 1);
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            if (i === pagination.current_page) {
+                html += '<button class="pagination-button current" data-page="' + i + '">' + i + '</button>';
+            } else {
+                html += '<button class="pagination-button" data-page="' + i + '">' + i + '</button>';
+            }
+        }
+        
+        // Next page button
+        if (pagination.current_page < pagination.total_pages) {
+            html += '<button class="pagination-button" data-page="' + (pagination.current_page + 1) + '">Next</button>';
+        } else {
+            html += '<button class="pagination-button disabled">Next</button>';
+        }
+
+        // Last page button (new)
+        if (pagination.current_page < pagination.total_pages) {
+            html += '<button class="pagination-button last-page" data-page="' + pagination.total_pages + '">Last</button>';
+        } else {
+            html += '<button class="pagination-button last-page disabled">Last</button>';
+        }
+        
+        html += '</div>';
+        $('#award-search-pagination').html(html);
+    }
+    
+    // Handle pagination button clicks
+    $(document).on('click', '.pagination-button:not(.disabled):not(.current)', function() {
+        const page = $(this).data('page');
+        performSearch(page);
+        
+        // Scroll back to top of results
+        $('html, body').animate({
+            scrollTop: $('#award-search-form').offset().top
+        }, 500);
+    });
 
     // Add a function to reset all filters
     function resetFilters() {
@@ -123,14 +213,14 @@ jQuery(document).ready(function($) {
         $('#graduate-filter').val('all');
         $('#award-type-filter').val('all');
         
+        // Reset pagination
+        $('#current-page').val(1);
+        currentSearchParams.page = 1;
+        
         // Clear results and show a message
         $('#award-search-results').html('<p>Filters have been reset. Enter search terms or select filters to find awards.</p>');
+        $('#award-search-pagination').html('');
     }
-
-    // Add click event handler for the reset button
-    $('#reset-filters-button').on('click', function() {
-        resetFilters();
-    });
 
     // Add click event handler for the reset button
     $('#reset-filters-button').on('click', function() {
@@ -149,7 +239,9 @@ jQuery(document).ready(function($) {
             $('#faculty-filter').val() !== 'all' || 
             $('#graduate-filter').val() !== 'all' ||
             $('#award-type-filter').val() !== 'all') {
-            typingTimer = setTimeout(performSearch, doneTypingInterval);
+            typingTimer = setTimeout(function() {
+                performSearch(1); // Reset to first page on new search terms
+            }, doneTypingInterval);
         }
     });
     
@@ -161,7 +253,7 @@ jQuery(document).ready(function($) {
             $('#faculty-filter').val() !== 'all' ||
             $('#graduate-filter').val() !== 'all' ||
             $('#award-type-filter').val() !== 'all') {
-            performSearch();
+            performSearch(1); // Reset to first page on filter change
         }
     });
 });
