@@ -24,6 +24,10 @@ class Award_JSON_Search_Plugin {
         add_action('wp_ajax_award_search_query', array($this, 'handle_ajax_search'));
         add_action('wp_ajax_nopriv_award_search_query', array($this, 'handle_ajax_search'));
         
+        // Register new AJAX handler for faculties by campus
+        add_action('wp_ajax_get_faculties_by_campus', array($this, 'get_faculties_by_campus'));
+        add_action('wp_ajax_nopriv_get_faculties_by_campus', array($this, 'get_faculties_by_campus'));
+        
         // Load JSON data
         $this->load_json_data();
     }
@@ -75,13 +79,22 @@ class Award_JSON_Search_Plugin {
     public function enqueue_scripts() {
         wp_enqueue_script('jquery');
         
+        // Enqueue Handlebars
+        wp_enqueue_script(
+            'handlebars',
+            'https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.7.7/handlebars.min.js',
+            array('jquery'),
+            '4.7.7',
+            true
+        );
+        
         // Check if JS directory and file exist before enqueuing
         $js_file = plugin_dir_path(__FILE__) . 'js/award-search.js';
         if (file_exists($js_file)) {
             wp_enqueue_script(
                 'award-search',
                 plugin_dir_url(__FILE__) . 'js/award-search.js',
-                array('jquery'),
+                array('jquery', 'handlebars'),  // Add handlebars as a dependency
                 '1.0',
                 true
             );
@@ -111,6 +124,69 @@ class Award_JSON_Search_Plugin {
         } else {
             error_log('Award Search Plugin: CSS file not found at: ' . $css_file);
         }
+    }
+
+    /**
+     * AJAX handler to get faculties filtered by campus
+     */
+    public function get_faculties_by_campus() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'award_search_nonce')) {
+            wp_send_json_error('Security check failed');
+            return;
+        }
+        
+        // Get and sanitize campus parameter
+        $campus = isset($_POST['campus']) ? sanitize_text_field($_POST['campus']) : 'all';
+        
+        // Get faculties filtered by campus
+        $faculties = $this->get_faculties_by_campus_filter($campus);
+        
+        wp_send_json_success(array(
+            'faculties' => $faculties
+        ));
+        return;
+    }
+
+    /**
+     * Get faculties filtered by campus
+     * 
+     * @param string $campus Campus code (V, O, or all)
+     * @return array Array of faculty names
+     */
+    private function get_faculties_by_campus_filter($campus = 'all') {
+        $faculties = array();
+        
+        if (!empty($this->json_data)) {
+            foreach ($this->json_data as $award) {
+                // Skip if not matching campus filter
+                if ($campus !== 'all' && 
+                    (!isset($award['Campus']) || $award['Campus'] !== $campus)) {
+                    continue;
+                }
+                
+                if (isset($award['Administering Unit']) && !empty($award['Administering Unit'])) {
+                    $adminUnit = $award['Administering Unit'];
+                    $faculty_name = '';
+                    
+                    // Look for " - " pattern and take everything after it
+                    $pos = strpos($adminUnit, ' - ');
+                    if ($pos !== false) {
+                        $faculty_name = substr($adminUnit, $pos + 3); // 3 = length of " - "
+                    } else {
+                        // Fallback to original value if pattern not found
+                        $faculty_name = $adminUnit;
+                    }
+                    
+                    if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
+                        $faculties[] = $faculty_name;
+                    }
+                }
+            }
+        }
+        
+        sort($faculties); // Sort alphabetically
+        return $faculties;
     }
 
     public function handle_ajax_search() {
@@ -164,6 +240,8 @@ class Award_JSON_Search_Plugin {
      * @param string $search_term The term to search for
      * @param string $campus_filter The campus to filter by (V, O, or all)
      * @param string $faculty_filter The faculty to filter by
+     * @param string $graduate_filter The graduate level to filter by
+     * @param string $award_type_filter The award type to filter by
      * @return array Search results
      */
     private function search_json_data($search_term, $campus_filter = 'all', $faculty_filter = 'all', $graduate_filter = 'all', $award_type_filter = 'all') {
@@ -238,7 +316,7 @@ class Award_JSON_Search_Plugin {
                     case 'Fellowship':
                         $award_type_match = ($award['Award Type'] === 'FELL');
                         break;
-                    case 'Fellowship':
+                    case 'Bursaries': // Fixed: Changed from 'Fellowship' to 'Bursaries'
                         $award_type_match = ($award['Award Type'] === 'BURS');
                         break;
                     default:
@@ -348,6 +426,105 @@ class Award_JSON_Search_Plugin {
         <input type="hidden" id="current-page" value="1">
         <input type="hidden" id="per-page" value="<?php echo esc_attr($atts['per_page']); ?>">
     </div>
+    
+    <!-- Template for search results -->
+    <script id="results-template" type="text/x-handlebars-template">
+        <div class="search-results-count">{{total_results}} awards found</div>
+        <div class="search-results-list">
+            {{#each results}}
+                <div class="award-item">
+                    <h3>{{this.[Award Name]}}</h3>
+                    
+                    <div class="award-details">
+                        <p><strong>Award Number:</strong> {{this.[Award Number]}}</p>
+                        <p><strong>Award Cycle:</strong> {{this.[Award Cycle]}}</p>
+                        
+                        {{#if this.[Award Type]}}
+                            <p><strong>Award Type:</strong> 
+                                {{#ifeq this.[Award Type] "AWRD"}}Award{{/ifeq}}
+                                {{#ifeq this.[Award Type] "SCHL"}}Scholarship{{/ifeq}}
+                                {{#ifeq this.[Award Type] "PRIZ"}}Prize{{/ifeq}}
+                                {{#ifeq this.[Award Type] "BURS"}}Bursaries{{/ifeq}}
+                                {{#ifeq this.[Award Type] "FELL"}}Fellowship{{/ifeq}}
+                                {{#ifneq this.[Award Type] "AWRD"}}
+                                    {{#ifneq this.[Award Type] "SCHL"}}
+                                        {{#ifneq this.[Award Type] "PRIZ"}}
+                                            {{#ifneq this.[Award Type] "BURS"}}
+                                                {{#ifneq this.[Award Type] "FELL"}}
+                                                    {{this.[Award Type]}}
+                                                {{/ifneq}}
+                                            {{/ifneq}}
+                                        {{/ifneq}}
+                                    {{/ifneq}}
+                                {{/ifneq}}
+                            </p>
+                        {{/if}}
+                        
+                        {{#if this.[Administering Unit]}}
+                            <p><strong>Department:</strong> {{formatAdminUnit this.[Administering Unit]}}</p>
+                        {{/if}}
+                        
+                        <p><strong>Degree Level:</strong> {{this.[Eligible Learner Level]}}</p>
+                        <p><strong>Application Type:</strong> {{this.[Application Type (Award Profile)]}}</p>
+                        
+                        {{#if this.Campus}}
+                            <p><strong>Campus:</strong>
+                                {{#ifeq this.Campus "V"}}Vancouver{{/ifeq}}
+                                {{#ifeq this.Campus "O"}}Okanagan{{/ifeq}}
+                                {{#ifneq this.Campus "V"}}
+                                    {{#ifneq this.Campus "O"}}
+                                        {{this.Campus}}
+                                    {{/ifneq}}
+                                {{/ifneq}}
+                            </p>
+                        {{/if}}
+                        
+                        {{#if this.[Award Description]}}
+                            <div class="award-description">
+                                <h4>Description</h4>
+                                <p>{{this.[Award Description]}}</p>
+                            </div>
+                        {{/if}}
+                    </div>
+                </div>
+            {{/each}}
+        </div>
+    </script>
+
+    <!-- Template for pagination -->
+    <script id="pagination-template" type="text/x-handlebars-template">
+        {{#if show_pagination}}
+            <div class="pagination-info">
+                Showing {{start_result}} to {{end_result}} of {{total_results}} awards
+            </div>
+            
+            <div class="pagination-controls">
+                {{#if has_prev}}
+                    <button class="pagination-button first-page" data-page="1">First</button>
+                    <button class="pagination-button" data-page="{{prev_page}}">Previous</button>
+                {{else}}
+                    <button class="pagination-button first-page disabled">First</button>
+                    <button class="pagination-button disabled">Previous</button>
+                {{/if}}
+                
+                {{#each page_numbers}}
+                    {{#if this.current}}
+                        <button class="pagination-button current" data-page="{{this.number}}">{{this.number}}</button>
+                    {{else}}
+                        <button class="pagination-button" data-page="{{this.number}}">{{this.number}}</button>
+                    {{/if}}
+                {{/each}}
+                
+                {{#if has_next}}
+                    <button class="pagination-button" data-page="{{next_page}}">Next</button>
+                    <button class="pagination-button last-page" data-page="{{total_pages}}">Last</button>
+                {{else}}
+                    <button class="pagination-button disabled">Next</button>
+                    <button class="pagination-button last-page disabled">Last</button>
+                {{/if}}
+            </div>
+        {{/if}}
+    </script>
     <?php
     return ob_get_clean();
     }

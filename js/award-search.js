@@ -10,6 +10,93 @@ jQuery(document).ready(function($) {
         per_page: $('#per-page').val() || 10
     };
     
+    // Register Handlebars helpers
+    Handlebars.registerHelper('ifeq', function(a, b, options) {
+        if (a === b) {
+            return options.fn(this);
+        }
+        return options.inverse(this);
+    });
+    
+    Handlebars.registerHelper('ifneq', function(a, b, options) {
+        if (a !== b) {
+            return options.fn(this);
+        }
+        return options.inverse(this);
+    });
+    
+    Handlebars.registerHelper('formatAdminUnit', function(adminUnit) {
+        let cleanAdminUnit = adminUnit;
+        
+        // Look for " - " pattern and take everything after it
+        let dashPos = adminUnit.indexOf(' - ');
+        if (dashPos !== -1) {
+            cleanAdminUnit = adminUnit.substring(dashPos + 3);
+        }
+        
+        return cleanAdminUnit;
+    });
+    
+    // Compile the templates
+    const resultsTemplate = Handlebars.compile($('#results-template').html());
+    const paginationTemplate = Handlebars.compile($('#pagination-template').html());
+    
+    // Function to update faculty dropdown based on campus selection
+    function updateFacultyDropdown(campus) {
+        // Show loading indicator in the faculty dropdown
+        $('#faculty-filter').html('<option value="all">Loading...</option>');
+        
+        // Send AJAX request to get faculties for the selected campus
+        $.ajax({
+            url: award_search_ajax.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'get_faculties_by_campus',
+                nonce: award_search_ajax.nonce,
+                campus: campus
+            },
+            success: function(response) {
+                if (response.success && response.data) {
+                    // Clear and rebuild faculty dropdown
+                    const facultyDropdown = $('#faculty-filter');
+                    facultyDropdown.empty();
+                    
+                    // Add default "Select one" option
+                    facultyDropdown.append('<option value="all">Select one</option>');
+                    
+                    // Add faculty options from response
+                    if (response.data.faculties && response.data.faculties.length > 0) {
+                        response.data.faculties.forEach(function(faculty) {
+                            facultyDropdown.append('<option value="' + faculty + '">' + faculty + '</option>');
+                        });
+                    } else {
+                        // No faculties found for this campus
+                        facultyDropdown.append('<option value="" disabled>No faculties found</option>');
+                    }
+                    
+                    // Reset faculty selection to "all"
+                    facultyDropdown.val('all');
+                    currentSearchParams.faculty_filter = 'all';
+                    
+                    // If we have search params, perform a new search with updated faculties
+                    if ($('#award-search-input').val().length >= 2 || 
+                        $('#campus-filter').val() !== 'all' || 
+                        $('#graduate-filter').val() !== 'all' ||
+                        $('#award-type-filter').val() !== 'all') {
+                        performSearch(1); // Reset to first page with new faculties
+                    }
+                } else {
+                    // Error handling
+                    $('#faculty-filter').html('<option value="all">Select one</option>');
+                }
+            },
+            error: function() {
+                // Error handling
+                $('#faculty-filter').html('<option value="all">Select one</option>');
+            }
+        });
+    }
+    
     // Function to perform search
     function performSearch(page = 1) {
         // Update search parameters
@@ -64,101 +151,32 @@ jQuery(document).ready(function($) {
         performSearch(1); // Reset to first page on new search
     });
     
-    // Display search results
+    // Display search results using Handlebars template
     function displayResults(results, pagination) {
         if (results.length === 0) {
             $('#award-search-results').html('<p>No results found</p>');
             return;
         }
-        let totalCount = pagination ? pagination.total_results : results.length;
-        let html = '<div class="search-results-count">' + totalCount + ' awards found</div>';
-        html += '<div class="search-results-list">';
         
-        results.forEach(function(award) {
-            html += '<div class="award-item">';
-            html += '<h3>' + award['Award Name'] + '</h3>';
-            
-            html += '<div class="award-details">';
-            html += '<p><strong>Award Number:</strong> ' + award['Award Number'] + '</p>';
-            html += '<p><strong>Award Cycle:</strong> ' + award['Award Cycle'] + '</p>';
-            if (award['Award Type']) {
-                html += '<p><strong>Award Type:</strong> ' + 
-                       (award['Award Type'] === 'AWRD'  ? 'Award' :
-                        award['Award Type'] === 'SCHL'  ? 'Scholarship' :
-                        award['Award Type'] === 'PRIZ'  ? 'Prize' :
-                        award['Award Type'] === 'BURS'  ? 'Bursaries' :
-                        award['Award Type'] === 'FELL' ? 'Fellowship' : award['Award Type']) + 
-                       '</p>';
-            }
-            if (award['Administering Unit']) {
-                let adminUnit = award['Administering Unit'];
-                let cleanAdminUnit = adminUnit;
-                
-                // Look for " - " pattern and take everything after it
-                let dashPos = adminUnit.indexOf(' - ');
-                if (dashPos !== -1) {
-                    cleanAdminUnit = adminUnit.substring(dashPos + 3);
-                }
-                
-                html += '<p><strong>Department:</strong> ' + cleanAdminUnit + '</p>';
-            }
-            html += '<p><strong>Degree Level:</strong> ' + award['Eligible Learner Level'] + '</p>';
-            html += '<p><strong>Application Type:</strong> ' + award['Application Type (Award Profile)'] + '</p>'
-            
-            // Add campus information if available
-            if (award['Campus']) {
-                html += '<p><strong>Campus:</strong> ' + 
-                       (award['Campus'] === 'V' ? 'Vancouver' : 
-                        award['Campus'] === 'O' ? 'Okanagan' : award['Campus']) + 
-                       '</p>';
-            }
-            
-            // Add description if available
-            if (award['Award Description']) {
-                html += '<div class="award-description">';
-                html += '<h4>Description</h4>';
-                html += '<p>' + award['Award Description'] + '</p>';
-                html += '</div>';
-            }
-            
-            html += '</div>'; // Close award-details
-            html += '</div>'; // Close award-item
-        });
+        // Prepare the data for the template
+        const templateData = {
+            results: results,
+            total_results: pagination ? pagination.total_results : results.length
+        };
         
-        html += '</div>'; // Close search-results-list
+        // Render the template with the data
+        const html = resultsTemplate(templateData);
         $('#award-search-results').html(html);
     }
 
-    // Display pagination controls
+    // Display pagination controls using Handlebars template
     function displayPagination(pagination) {
         if (!pagination || pagination.total_pages <= 1) {
             $('#award-search-pagination').html('');
             return;
         }
         
-        let html = '<div class="pagination-info">';
-        html += 'Showing ' + ((pagination.current_page - 1) * pagination.per_page + 1);
-        html += ' to ' + Math.min(pagination.current_page * pagination.per_page, pagination.total_results);
-        html += ' of ' + pagination.total_results + ' awards';
-        html += '</div>';
-        
-        html += '<div class="pagination-controls">';
-
-        // First page button
-        if (pagination.current_page > 1) {
-            html += '<button class="pagination-button first-page" data-page="1">First</button>';
-        } else {
-            html += '<button class="pagination-button first-page disabled">First</button>';
-        }
-        
-        // Previous page button
-        if (pagination.current_page > 1) {
-            html += '<button class="pagination-button" data-page="' + (pagination.current_page - 1) + '">Previous</button>';
-        } else {
-            html += '<button class="pagination-button disabled">Previous</button>';
-        }
-        
-        // Page numbers
+        // Calculate page numbers to show
         const maxPages = 5; // Maximum number of page buttons to show
         let startPage = Math.max(1, pagination.current_page - Math.floor(maxPages / 2));
         let endPage = Math.min(pagination.total_pages, startPage + maxPages - 1);
@@ -167,29 +185,32 @@ jQuery(document).ready(function($) {
             startPage = Math.max(1, endPage - maxPages + 1);
         }
         
+        // Generate page numbers array
+        let pageNumbers = [];
         for (let i = startPage; i <= endPage; i++) {
-            if (i === pagination.current_page) {
-                html += '<button class="pagination-button current" data-page="' + i + '">' + i + '</button>';
-            } else {
-                html += '<button class="pagination-button" data-page="' + i + '">' + i + '</button>';
-            }
+            pageNumbers.push({
+                number: i,
+                current: i === pagination.current_page
+            });
         }
         
-        // Next page button
-        if (pagination.current_page < pagination.total_pages) {
-            html += '<button class="pagination-button" data-page="' + (pagination.current_page + 1) + '">Next</button>';
-        } else {
-            html += '<button class="pagination-button disabled">Next</button>';
-        }
-
-        // Last page button (new)
-        if (pagination.current_page < pagination.total_pages) {
-            html += '<button class="pagination-button last-page" data-page="' + pagination.total_pages + '">Last</button>';
-        } else {
-            html += '<button class="pagination-button last-page disabled">Last</button>';
-        }
+        // Prepare the data for the template
+        const templateData = {
+            show_pagination: true,
+            current_page: pagination.current_page,
+            total_pages: pagination.total_pages,
+            total_results: pagination.total_results,
+            start_result: (pagination.current_page - 1) * pagination.per_page + 1,
+            end_result: Math.min(pagination.current_page * pagination.per_page, pagination.total_results),
+            has_prev: pagination.current_page > 1,
+            has_next: pagination.current_page < pagination.total_pages,
+            prev_page: pagination.current_page - 1,
+            next_page: pagination.current_page + 1,
+            page_numbers: pageNumbers
+        };
         
-        html += '</div>';
+        // Render the template with the data
+        const html = paginationTemplate(templateData);
         $('#award-search-pagination').html(html);
     }
     
@@ -216,6 +237,9 @@ jQuery(document).ready(function($) {
         // Reset pagination
         $('#current-page').val(1);
         currentSearchParams.page = 1;
+        
+        // Also refresh the faculty dropdown to show all faculties
+        updateFacultyDropdown('all');
         
         // Clear results and show a message
         $('#award-search-results').html('<p>Filters have been reset. Enter search terms or select filters to find awards.</p>');
@@ -245,9 +269,27 @@ jQuery(document).ready(function($) {
         }
     });
     
-    // Handle filter changes
-    $('#campus-filter, #faculty-filter, #graduate-filter, #award-type-filter').on('change', function() {
+    // Handle campus filter change - update faculty dropdown
+    $('#campus-filter').on('change', function() {
+        const selectedCampus = $(this).val();
+        updateFacultyDropdown(selectedCampus);
+    });
+    
+    // Handle other filter changes
+    $('#graduate-filter, #award-type-filter').on('change', function() {
         // Trigger search when any filter changes
+        if ($('#award-search-input').val().length >= 2 || 
+            $('#campus-filter').val() !== 'all' || 
+            $('#faculty-filter').val() !== 'all' ||
+            $('#graduate-filter').val() !== 'all' ||
+            $('#award-type-filter').val() !== 'all') {
+            performSearch(1); // Reset to first page on filter change
+        }
+    });
+    
+    // Also handle faculty filter changes separately
+    $('#faculty-filter').on('change', function() {
+        // Trigger search when faculty filter changes
         if ($('#award-search-input').val().length >= 2 || 
             $('#campus-filter').val() !== 'all' || 
             $('#faculty-filter').val() !== 'all' ||
