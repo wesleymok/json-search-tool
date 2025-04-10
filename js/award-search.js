@@ -26,15 +26,35 @@ jQuery(document).ready(function($) {
     });
     
     Handlebars.registerHelper('formatAdminUnit', function(adminUnit) {
-        let cleanAdminUnit = adminUnit;
-        
-        // Look for " - " pattern and take everything after it
-        let dashPos = adminUnit.indexOf(' - ');
-        if (dashPos !== -1) {
-            cleanAdminUnit = adminUnit.substring(dashPos + 3);
+        // If adminUnit contains multiple entries (separated by semicolons)
+        if (adminUnit.indexOf(';') !== -1) {
+            // Split by semicolon, format each part, and rejoin with semicolons
+            return adminUnit.split(';').map(function(part) {
+                return formatSingleAdminUnit(part.trim());
+            }).join('; ');
+        } else {
+            // Format a single admin unit
+            return formatSingleAdminUnit(adminUnit);
         }
         
-        return cleanAdminUnit;
+        // Helper function to format a single admin unit
+        function formatSingleAdminUnit(unit) {
+            let cleanUnit = unit;
+            
+            // Look for " - " pattern and take everything after it
+            let dashPos = unit.indexOf(' - ');
+            if (dashPos !== -1) {
+                cleanUnit = unit.substring(dashPos + 3);
+            }
+            
+            // Remove campus info in parentheses if present
+            let parenthesisPos = cleanUnit.indexOf(' (');
+            if (parenthesisPos !== -1) {
+                cleanUnit = cleanUnit.substring(0, parenthesisPos);
+            }
+            
+            return cleanUnit.trim();
+        }
     });
     
     // Compile the templates

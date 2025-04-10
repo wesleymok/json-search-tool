@@ -167,19 +167,26 @@ class Award_JSON_Search_Plugin {
                 
                 if (isset($award['Administering Unit']) && !empty($award['Administering Unit'])) {
                     $adminUnit = $award['Administering Unit'];
-                    $faculty_name = '';
                     
-                    // Look for " - " pattern and take everything after it
-                    $pos = strpos($adminUnit, ' - ');
-                    if ($pos !== false) {
-                        $faculty_name = substr($adminUnit, $pos + 3); // 3 = length of " - "
+                    // Check if the admin unit contains multiple entries
+                    if (strpos($adminUnit, ';') !== false) {
+                        // Split by semicolon and process each part
+                        $adminUnitParts = array_map('trim', explode(';', $adminUnit));
+                        
+                        foreach ($adminUnitParts as $part) {
+                            $faculty_name = $this->extract_faculty_name($part);
+                            
+                            if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
+                                $faculties[] = $faculty_name;
+                            }
+                        }
                     } else {
-                        // Fallback to original value if pattern not found
-                        $faculty_name = $adminUnit;
-                    }
-                    
-                    if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
-                        $faculties[] = $faculty_name;
+                        // Process single entry
+                        $faculty_name = $this->extract_faculty_name($adminUnit);
+                        
+                        if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
+                            $faculties[] = $faculty_name;
+                        }
                     }
                 }
             }
@@ -234,123 +241,137 @@ class Award_JSON_Search_Plugin {
         return;
     }
     
-    /**
-     * Search through JSON data
-     *
-     * @param string $search_term The term to search for
-     * @param string $campus_filter The campus to filter by (V, O, or all)
-     * @param string $faculty_filter The faculty to filter by
-     * @param string $graduate_filter The graduate level to filter by
-     * @param string $award_type_filter The award type to filter by
-     * @return array Search results
-     */
-    private function search_json_data($search_term, $campus_filter = 'all', $faculty_filter = 'all', $graduate_filter = 'all', $award_type_filter = 'all') {
-        if (empty($this->json_data)) {
-            return array();
+/**
+ * Search through JSON data
+ *
+ * @param string $search_term The term to search for
+ * @param string $campus_filter The campus to filter by (V, O, or all)
+ * @param string $faculty_filter The faculty to filter by
+ * @param string $graduate_filter The graduate level to filter by
+ * @param string $award_type_filter The award type to filter by
+ * @return array Search results
+ */
+private function search_json_data($search_term, $campus_filter = 'all', $faculty_filter = 'all', $graduate_filter = 'all', $award_type_filter = 'all') {
+    if (empty($this->json_data)) {
+        return array();
+    }
+
+    $results = array();
+    $search_term = strtolower($search_term);
+
+    // Search through each award entry
+    foreach ($this->json_data as $award) {
+        // Skip if not an array
+        if (!is_array($award)) {
+            continue;
         }
-    
-        $results = array();
-        $search_term = strtolower($search_term);
-    
-        // Search through each award entry
-        foreach ($this->json_data as $award) {
-            // Skip if not an array
-            if (!is_array($award)) {
-                continue;
-            }
-            
-            // Apply campus filter if not set to 'all'
-            if ($campus_filter !== 'all') {
-                if (!isset($award['Campus']) || $award['Campus'] !== $campus_filter) {
-                    continue; // Skip this award if it doesn't match the campus filter
-                }
-            }
-            
-            // Apply faculty filter if not set to 'all'
-            if ($faculty_filter !== 'all') {
-                if (!isset($award['Administering Unit']) || empty($award['Administering Unit'])) {
-                    continue;
-                }
-                
-                // Extract faculty name using the same pattern approach
-                $adminUnit = $award['Administering Unit'];
-                $award_faculty = '';
-                
-                // Look for " - " pattern and take everything after it
-                $pos = strpos($adminUnit, ' - ');
-                if ($pos !== false) {
-                    $award_faculty = substr($adminUnit, $pos + 3);
-                } else {
-                    $award_faculty = $adminUnit;
-                }
-                
-                if ($award_faculty !== $faculty_filter) {
-                    continue; // Skip this award if it doesn't match the faculty filter
-                }
-            }
-
-            if ($graduate_filter !== 'all') {
-                if (!isset($award['Eligible Learner Level']) || $award['Eligible Learner Level'] !== $graduate_filter) {
-                    continue; // Skip this award if it doesn't match the campus filter
-                }
-            }
-
-            if ($award_type_filter !== 'all') {
-                if (!isset($award['Award Type'])) {
-                    continue;
-                }
-            
-                $award_type_match = false;
-                
-                // Map the user-friendly filter value to the database code
-                switch ($award_type_filter) {
-                    case 'Award':
-                        $award_type_match = ($award['Award Type'] === 'AWRD');
-                        break;
-                    case 'Scholarship':
-                        $award_type_match = ($award['Award Type'] === 'SCHL');
-                        break;
-                    case 'Prize':
-                        $award_type_match = ($award['Award Type'] === 'PRIZ');
-                        break;
-                    case 'Fellowship':
-                        $award_type_match = ($award['Award Type'] === 'FELL');
-                        break;
-                    case 'Bursaries': // Fixed: Changed from 'Fellowship' to 'Bursaries'
-                        $award_type_match = ($award['Award Type'] === 'BURS');
-                        break;
-                    default:
-                        $award_type_match = ($award['Award Type'] === $award_type_filter);
-                }
-                
-                if (!$award_type_match) {
-                    continue; // Skip this award if it doesn't match the award type filter
-                }
-            }
-            
-            // If search term is empty, include all awards that match the filters
-            if (empty($search_term)) {
-                $results[] = $award;
-                continue;
-            }
-            
-            // Search through all fields in this award
-            foreach ($award as $field => $value) {
-                // Convert to string if not already
-                if (!is_string($value) && !is_numeric($value)) {
-                    continue;
-                }
-                
-                $value_str = (string) $value;
-                if (stripos(strtolower($value_str), $search_term) !== false) {
-                    $results[] = $award;
-                    break; // Found in this award, no need to check other fields
-                }
+        
+        // Apply campus filter if not set to 'all'
+        if ($campus_filter !== 'all') {
+            if (!isset($award['Campus']) || $award['Campus'] !== $campus_filter) {
+                continue; // Skip this award if it doesn't match the campus filter
             }
         }
         
-        return $results;
+        // Apply faculty filter if not set to 'all'
+        if ($faculty_filter !== 'all') {
+            if (!isset($award['Administering Unit']) || empty($award['Administering Unit'])) {
+                continue;
+            }
+            
+            $adminUnit = $award['Administering Unit'];
+            $faculty_match = false;
+            
+            // Check if there are multiple units
+            if (strpos($adminUnit, ';') !== false) {
+                $adminUnitParts = array_map('trim', explode(';', $adminUnit));
+                
+                // Check each part for a match
+                foreach ($adminUnitParts as $part) {
+                    $award_faculty = $this->extract_faculty_name($part);
+                    
+                    if ($award_faculty === $faculty_filter) {
+                        $faculty_match = true;
+                        break;
+                    }
+                }
+            } else {
+                // Single unit
+                $award_faculty = $this->extract_faculty_name($adminUnit);
+                if ($award_faculty === $faculty_filter) {
+                    $faculty_match = true;
+                }
+            }
+            
+            if (!$faculty_match) {
+                continue; // Skip this award if no faculty match
+            }
+        }
+
+        // Apply graduate filter if not set to 'all'
+        if ($graduate_filter !== 'all') {
+            if (!isset($award['Eligible Learner Level']) || $award['Eligible Learner Level'] !== $graduate_filter) {
+                continue; // Skip this award if it doesn't match the campus filter
+            }
+        }
+
+        // Apply award type filter if not set to 'all'
+        if ($award_type_filter !== 'all') {
+            if (!isset($award['Award Type'])) {
+                continue;
+            }
+        
+            $award_type_match = false;
+            
+            // Map the user-friendly filter value to the database code
+            switch ($award_type_filter) {
+                case 'Award':
+                    $award_type_match = ($award['Award Type'] === 'AWRD');
+                    break;
+                case 'Scholarship':
+                    $award_type_match = ($award['Award Type'] === 'SCHL');
+                    break;
+                case 'Prize':
+                    $award_type_match = ($award['Award Type'] === 'PRIZ');
+                    break;
+                case 'Fellowship':
+                    $award_type_match = ($award['Award Type'] === 'FELL');
+                    break;
+                case 'Bursaries': 
+                    $award_type_match = ($award['Award Type'] === 'BURS');
+                    break;
+                default:
+                    $award_type_match = ($award['Award Type'] === $award_type_filter);
+            }
+            
+            if (!$award_type_match) {
+                continue; // Skip this award if it doesn't match the award type filter
+            }
+        }
+        
+        // If search term is empty, include all awards that match the filters
+        if (empty($search_term)) {
+            $results[] = $award;
+            continue;
+        }
+        
+        // Search through all fields in this award
+        foreach ($award as $field => $value) {
+            // Convert to string if not already
+            if (!is_string($value) && !is_numeric($value)) {
+                continue;
+            }
+            
+            $value_str = (string) $value;
+            if (stripos(strtolower($value_str), $search_term) !== false) {
+                $results[] = $award;
+                break; // Found in this award, no need to check other fields
+            }
+        }
     }
+    
+    return $results;
+}
 
     /**
      * Shortcode callback to display search form and results
@@ -541,19 +562,26 @@ class Award_JSON_Search_Plugin {
             foreach ($this->json_data as $award) {
                 if (isset($award['Administering Unit']) && !empty($award['Administering Unit'])) {
                     $adminUnit = $award['Administering Unit'];
-                    $faculty_name = '';
                     
-                    // Look for " - " pattern and take everything after it
-                    $pos = strpos($adminUnit, ' - ');
-                    if ($pos !== false) {
-                        $faculty_name = substr($adminUnit, $pos + 3); // 3 = length of " - "
+                    // Check if the admin unit contains multiple entries (e.g., separated by semicolons)
+                    if (strpos($adminUnit, ';') !== false) {
+                        // Split by semicolon and process each part
+                        $adminUnitParts = array_map('trim', explode(';', $adminUnit));
+                        
+                        foreach ($adminUnitParts as $part) {
+                            $faculty_name = $this->extract_faculty_name($part);
+                            
+                            if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
+                                $faculties[] = $faculty_name;
+                            }
+                        }
                     } else {
-                        // Fallback to original value if pattern not found
-                        $faculty_name = $adminUnit;
-                    }
-                    
-                    if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
-                        $faculties[] = $faculty_name;
+                        // Process single entry
+                        $faculty_name = $this->extract_faculty_name($adminUnit);
+                        
+                        if (!empty($faculty_name) && !in_array($faculty_name, $faculties)) {
+                            $faculties[] = $faculty_name;
+                        }
                     }
                 }
             }
@@ -562,6 +590,28 @@ class Award_JSON_Search_Plugin {
         sort($faculties); // Sort alphabetically
         return $faculties;
     }
+    
+        // Helper method to extract faculty name from admin unit string
+        private function extract_faculty_name($adminUnit) {
+            $faculty_name = '';
+            
+            // If the string contains " - ", take everything after it
+            $pos = strpos($adminUnit, ' - ');
+            if ($pos !== false) {
+                $faculty_name = substr($adminUnit, $pos + 3); // 3 = length of " - "
+            } else {
+                // Fallback to original value if pattern not found
+                $faculty_name = $adminUnit;
+            }
+            
+            // Further clean up the faculty name (remove any parenthetical campus info)
+            $parenthesis_pos = strpos($faculty_name, ' (');
+            if ($parenthesis_pos !== false) {
+                $faculty_name = substr($faculty_name, 0, $parenthesis_pos);
+            }
+            
+            return trim($faculty_name);
+        }
 }
 
 // Initialize the plugin - with error handling
